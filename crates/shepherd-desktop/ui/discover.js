@@ -33,8 +33,8 @@ function mergeModels({ live = [], configured = [], agentDefault = null }) {
   const seen = new Set(), out = [];
   const add = (id, label, source) => { if (id && !seen.has(id)) { seen.add(id); out.push({ id, label: label && label !== id ? `${id} — ${label}` : id, source }); } };
   for (const m of live) add(m.id, m.label, "detectado");
-  for (const id of configured) add(id, null, "configuración");
-  add(agentDefault, null, "predeterminado del agente");
+  for (const id of configured) add(id, null, "configuration");
+  add(agentDefault, null, "agent default");
   return out;
 }
 

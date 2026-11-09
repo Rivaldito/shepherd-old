@@ -4,6 +4,7 @@
 mod api;
 mod discover;
 mod setup;
+mod watch;
 
 use serde::Serialize;
 use serde_json::json;
@@ -827,14 +828,21 @@ fn spawn_event_forwarder(app: tauri::AppHandle) {
                 let _ = app.emit("shepherd-connection", json!({ "connected": now }));
             }
         };
-        let result = api::read_events(
-            &api::default_socket_path(),
-            api::EVENT_TYPES,
-            &mut || announce(true),
-            &mut |event| {
-                let _ = app.emit("shepherd-event", event);
-            },
-        );
+        let socket = api::default_socket_path();
+        // The static events plus a status subscription per pane; a change of the pane set ends this
+        // subscription (the callback returns false) and the loop reconnects with the new list.
+        let mut subs: Vec<serde_json::Value> = api::EVENT_TYPES
+            .iter()
+            .map(|t| json!({ "type": t }))
+            .collect();
+        if let Ok(snapshot) = api::call(&socket, "session.snapshot", json!({})) {
+            subs.extend(api::status_subscriptions(&snapshot));
+        }
+        let result = api::read_subscriptions(&socket, subs, &mut || announce(true), &mut |event| {
+            let changed = api::changes_panes(&event);
+            let _ = app.emit("shepherd-event", event);
+            !changed
+        });
         announce(false);
         if matches!(&result, Err(e) if e.starts_with("events_lost")) {
             let _ = app.emit("shepherd-event", json!({ "event": "events_lost" }));
@@ -926,10 +934,41 @@ fn open_monitor(
     open_monitor_window(&app, root.as_deref(), focus.as_deref())
 }
 
+/// Starts watching the project's `.shepherd` folder (runs, tasks); the panels call it for the project they show.
+#[tauri::command]
+fn watch_project(
+    root: Option<String>,
+    watcher: tauri::State<std::sync::Mutex<Option<watch::StateWatcher>>>,
+) -> Result<(), String> {
+    let root = resolve_root(root.as_deref());
+    if let Some(w) = watcher.lock().map_err(|e| e.to_string())?.as_mut() {
+        w.watch(&root.join(".shepherd"), true)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
+        .manage(std::sync::Mutex::new(None::<watch::StateWatcher>))
         .setup(|app| {
             spawn_event_forwarder(app.handle().clone());
+            // agents.json, messages.jsonl*, service.log live in the state folder
+            let handle = app.handle().clone();
+            match watch::StateWatcher::start(move || {
+                let _ = handle.emit("shepherd-state", json!({}));
+            }) {
+                Ok(mut w) => {
+                    let _ = w.watch(&config::state_dir(), false);
+                    if let Ok(mut slot) =
+                        tauri::Manager::state::<std::sync::Mutex<Option<watch::StateWatcher>>>(app)
+                            .lock()
+                    {
+                        *slot = Some(w);
+                    }
+                }
+                Err(e) => eprintln!("no se pudo vigilar el estado: {e}"),
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -965,7 +1004,8 @@ fn main() {
             enable_shepherd,
             assign_agent_task,
             bus_feed,
-            open_monitor
+            open_monitor,
+            watch_project
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar Shepherd desktop");

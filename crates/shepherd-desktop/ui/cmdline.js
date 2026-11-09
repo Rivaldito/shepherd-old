@@ -16,7 +16,7 @@ function splitArgs(line) {
     else if (/\s/.test(c)) { if (cur || has) args.push(cur); cur = ""; has = false; }
     else { cur += c; has = true; }
   }
-  if (quote) return { error: "comilla sin cerrar" };
+  if (quote) return { error: "Unclosed quote" };
   if (cur || has) args.push(cur);
   return { args };
 }
@@ -41,13 +41,13 @@ function matchCommands(query, items) {
 // "pane.read {"pane_id":"w1:p1"}" -> { method, params } | { error }
 function parseApiLine(line) {
   const m = line.trim().match(/^([a-z_]+(?:\.[a-z_]+)*)\s*([\s\S]*)$/);
-  if (!m) return { error: "formato: método {json}  (por ejemplo: pane.list)" };
+  if (!m) return { error: "Format: method {json} (for example: pane.list)" };
   if (!m[2]) return { method: m[1], params: {} };
   try {
     const params = JSON.parse(m[2]);
-    if (params === null || typeof params !== "object" || Array.isArray(params)) return { error: "los parámetros deben ser un objeto JSON" };
+    if (params === null || typeof params !== "object" || Array.isArray(params)) return { error: "Parameters must be a JSON object." };
     return { method: m[1], params };
-  } catch (e) { return { error: "JSON inválido: " + e.message }; }
+  } catch (e) { return { error: "Invalid JSON: " + e.message }; }
 }
 
 // History cursor: -1 = not browsing, n = n entries back from the newest (clamped to the list).

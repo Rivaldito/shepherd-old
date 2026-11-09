@@ -1,7 +1,7 @@
 // Agents tab, laid out like the TUI: list (role (id), state badge, vendor / NEEDS YOU) + detail.
 // Live from the server's registry when it runs (so actions and state agree), else the saved file.
 // Actions: launch, go to terminal, kill / clean (two clicks), resume.
-let ag = { list: [], tasks: [], sel: null, raw: "", live: false, creating: false, form: null, confirm: null }; // sel: agent id
+let ag = { list: [], tasks: [], sel: null, raw: "", live: false, creating: false, form: null }; // sel: agent id
 
 const needsYou = (a) => ["blocked", "needs-human"].includes(a.state) || !!(a.notice ?? "").trim();
 const stateBadge = (s) => {
@@ -42,46 +42,47 @@ async function refreshAgents() {
   try { applyAgents(await fetchAgents()); } catch (_) { /* keep the last good view */ }
 }
 
-// Runs an action, then re-reads the list; destructive ones were armed with a first click.
+// Runs an action, then re-reads the list.
 async function agentAction(method, params) {
-  ag.confirm = null;
   await act(method, params);
   ag.raw = ""; refreshAgents();
 }
 
-function armedButton(key, label, armedLabel, run, extra = "") {
-  const armed = ag.confirm === key;
-  return el("button", { className: "btn small" + (armed ? " danger" : "") + extra, onclick: () => {
-    if (armed) return run();
-    ag.confirm = key; renderAgents(); setTimeout(() => { if (ag.confirm === key) { ag.confirm = null; renderAgents(); } }, 4000);
-  } }, armed ? armedLabel : label);
+async function closeAndRemoveAgent(a) {
+  if (!TERMINAL_STATES.includes(a.state) && !await act("shepherd.agent.kill", { id: a.id })) return;
+  await act("shepherd.agent.clean", { ids: [a.id] });
+  ag.raw = ""; refreshAgents();
+}
+
+function actionButton(label, run, extra = "") {
+  return el("button", { className: "btn small" + extra, onclick: run }, label);
 }
 
 function listFooter() {
   const live = ag.live;
-  const buttons = [el("button", { className: "btn small", disabled: !live, title: live ? "" : "Necesita el servidor en marcha", onclick: () => {
+  const buttons = [el("button", { className: "btn small", disabled: !live, title: live ? "" : "Requires the server to be running", onclick: () => {
     ag.creating = true; ag.form ??= spawnForm({ root: typeof activeCwd === "function" ? activeCwd() : "", onDone: (agent) => { ag.creating = false; ag.form = null; ag.sel = agent.id ?? ag.sel; ag.raw = ""; refreshAgents(); }, onCancel: () => { ag.creating = false; ag.form = null; renderAgents(); } });
     renderAgents();
-  } }, "+ Nuevo")];
-  if (live) buttons.push(armedButton("resume", "Reanudar", "¿Reanudar todos?", () => agentAction("shepherd.agent.resume", {})));
-  buttons.push(el("button", { className: "btn small", onclick: () => { ag.raw = ""; refreshAgents(); } }, "Refrescar"));
-  return el("div", { className: "panel-actions" }, ...buttons, el("span", { className: "dim" }, live ? "en vivo" : "archivo guardado"));
+  } }, "+ New")];
+  if (live) buttons.push(actionButton("Resume", () => agentAction("shepherd.agent.resume", {})));
+  buttons.push(el("button", { className: "btn small", onclick: () => { ag.raw = ""; refreshAgents(); } }, "Refresh"));
+  return el("div", { className: "panel-actions" }, ...buttons, el("span", { className: "dim" }, live ? "live" : "saved snapshot"));
 }
 
-// "Tarea": which task of the project this agent works for, with a way to change or clear it.
+// "Task": which task of the project this agent works for, with a way to change or clear it.
 function taskAssignBlock(a) {
   // A run's agents carry the run id; giving them a task would cut them off from the run.
-  if (isRunAgent(a)) return el("div", { className: "block" }, el("h4", {}, "TAREA DEL PROYECTO:"),
-    el("div", { className: "dim" }, `Pertenece al run ${a.task_id}: su tarea es la del run (míralo en la pestaña Monitor).`));
+  if (isRunAgent(a)) return el("div", { className: "block" }, el("h4", {}, "PROJECT TASK:"),
+    el("div", { className: "dim" }, `Belongs to run ${a.task_id}; its task is the run task (see the Monitor tab).`));
   const current = ag.tasks.find((t) => String(t.id) === String(a.task_id ?? ""));
-  const pick = el("select", {}, el("option", { value: "" }, "(ninguna)"),
+  const pick = el("select", {}, el("option", { value: "" }, "(none)"),
     ...ag.tasks.map((t) => el("option", { value: String(t.id), selected: current?.id === t.id }, `#${t.id} ${t.title}`)));
   const save = el("button", { className: "btn small", disabled: !ag.tasks.length, onclick: async () => {
-    if (await assignAgent(a.id, pick.value ? Number(pick.value) : null)) { flash(pick.value ? `Agente ${a.id} asignado a la tarea #${pick.value}` : `Agente ${a.id} sin tarea`); ag.raw = ""; refreshAgents(); }
-  } }, "Guardar");
-  return el("div", { className: "block" }, el("h4", {}, "TAREA DEL PROYECTO:"),
-    el("div", { className: "dim" }, current ? `Asignado a #${current.id} ${current.title}` : a.task_id ? `Asignado a la tarea #${a.task_id}, que no está en este proyecto` : "Sin tarea asignada"),
-    el("div", { className: "assign" }, pick, save), ag.tasks.length ? "" : el("div", { className: "dim small" }, "Este proyecto no tiene tareas: crea una en la pestaña Tareas."));
+    if (await assignAgent(a.id, pick.value ? Number(pick.value) : null)) { flash(pick.value ? `Agent ${a.id} assigned to task #${pick.value}` : `Agent ${a.id} unassigned`); ag.raw = ""; refreshAgents(); }
+  } }, "Save");
+  return el("div", { className: "block" }, el("h4", {}, "PROJECT TASK:"),
+    el("div", { className: "dim" }, current ? `Assigned to #${current.id} ${current.title}` : a.task_id ? `Assigned to task #${a.task_id}, which is not in this project` : "No task assigned"),
+    el("div", { className: "assign" }, pick, save), ag.tasks.length ? "" : el("div", { className: "dim small" }, "This project has no tasks. Create one in the Tasks tab."));
 }
 
 function renderAgents() {
@@ -93,32 +94,30 @@ function renderAgents() {
       el("small", {}, needsYou(a) ? "⚠ NEEDS YOU" : a.vendor)));
   }
   $("list").replaceChildren(items, listFooter());
-  if (ag.creating) return $("detail").replaceChildren(el("div", { className: "head" }, "LANZAR AGENTE", el("span", { className: "state" })), el("div", { className: "blocks" }, ag.form));
+  if (ag.creating) return $("detail").replaceChildren(el("div", { className: "head" }, "LAUNCH AGENT", el("span", { className: "state" })), el("div", { className: "blocks" }, ag.form));
   const a = ag.list.find((x) => x.id === ag.sel);
   if (!a) return $("detail").replaceChildren(el("div", { className: "empty" },
-    "No hay agentes en el registro. Lánzalos con «+ Nuevo» (hace falta el servidor en marcha)."));
+    "No agents in the registry. Launch one with “+ New” (the server must be running)."));
 
   const [txt, cls] = stateBadge(a.state);
   const block = (title, body) => el("div", { className: "block" }, el("h4", {}, title), el("pre", {}, body));
   const detail = el("div", { className: "blocks" });
-  if (needsYou(a)) detail.append(el("div", { className: "notice" }, "AVISO DESTACADO (NEEDS YOU):\nEsperando al humano: " +
-    ((a.notice ?? "").trim() || "Acción requerida en el terminal nativo (diálogo, login o confirmación).")));
-  detail.append(block("TAREA ASIGNADA:", a.task_text || "Sin descripción de tarea asignada."));
+  if (needsYou(a)) detail.append(el("div", { className: "notice" }, "NEEDS YOUR ATTENTION:\nWaiting for human input: " +
+    ((a.notice ?? "").trim() || "Action required in the native terminal (dialog, login, or confirmation).")));
+  detail.append(block("ASSIGNED TASK:", a.task_text || "No assigned task description."));
   detail.append(taskAssignBlock(a));
-  const info = [["Worktree", a.worktree], ["Branch", a.branch], ["Padre", a.parent_id], ["Raíz", a.root], ["Tarea", a.task_id],
-    ["Skills activas", (a.active_skills ?? []).join(", ")], ["Iniciado", a.started], ["Actualizado", a.updated]].filter(([, v]) => v);
-  if (info.length) detail.append(block("DETALLES:", info.map(([k, v]) => `${k}: ${v}`).join("\n")));
-  if (a.result) detail.append(block("RESULTADO:", a.result));
+  const info = [["Worktree", a.worktree], ["Branch", a.branch], ["Parent", a.parent_id], ["Root", a.root], ["Task", a.task_id],
+    ["Active skills", (a.active_skills ?? []).join(", ")], ["Started", a.started], ["Updated", a.updated]].filter(([, v]) => v);
+  if (info.length) detail.append(block("DETAILS:", info.map(([k, v]) => `${k}: ${v}`).join("\n")));
+  if (a.result) detail.append(block("RESULT:", a.result));
   if (a.error) detail.append(block("ERROR:", a.error));
-  detail.append(block("SNAPSHOTS:", a.snapshots ? `${a.snapshots} snapshot(s); último: ${a.last_snapshot}.` : "Aún no hay snapshots."));
+  detail.append(block("SNAPSHOTS:", a.snapshots ? `${a.snapshots} snapshot(s); latest: ${a.last_snapshot}.` : "No snapshots yet."));
 
-  const finished = TERMINAL_STATES.includes(a.state), actions = [];
-  if (ag.live && a.pane) actions.push(el("button", { className: "btn small", onclick: () => focusPane(a.pane) }, "Ir al terminal"));
-  if (ag.live) actions.push(finished
-    ? armedButton("clean:" + a.id, "Limpiar", "¿Limpiar?", () => agentAction("shepherd.agent.clean", { ids: [a.id] }))
-    : armedButton("kill:" + a.id, "Matar", "¿Matar agente?", () => agentAction("shepherd.agent.kill", { id: a.id })));
+  const actions = [];
+  if (ag.live && a.pane) actions.push(el("button", { className: "btn small", onclick: () => focusPane(a.pane) }, "Go to terminal"));
+  if (ag.live) actions.push(actionButton("Close", () => closeAndRemoveAgent(a)));
   $("detail").replaceChildren(
-    el("div", { className: "head" }, `AGENTE: ${a.role} (ID: ${a.id})`, el("span", { className: "badge " + cls }, txt), el("span", { className: "state" }), ...actions),
-    el("div", { className: "meta" }, `Vendor: ${a.vendor} | Modelo: ${a.model || "default"} | Terminal Pane: ${a.pane || "ninguno"}`),
+    el("div", { className: "head" }, `AGENT: ${a.role} (ID: ${a.id})`, el("span", { className: "badge " + cls }, txt), el("span", { className: "state" }), ...actions),
+    el("div", { className: "meta" }, `Vendor: ${a.vendor} | Model: ${a.model || "default"} | Terminal pane: ${a.pane || "none"}`),
     detail);
 }

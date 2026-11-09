@@ -42,22 +42,22 @@ function renderEventList() {
   const items = el("div", { id: "items" });
   for (const t of ev.topics)
     items.append(el("button", { className: "item" + (t.name === ev.sel ? " sel" : ""), onclick: () => { ev.sel = t.name; ev.ui = null; renderEventList(); renderEventDetail(); loadMessages(); } },
-      el("span", {}, t.name + " ", t.paused ? el("span", { className: "badge warn" }, "[PAUSADO]") : ""),
+      el("span", {}, t.name + " ", t.paused ? el("span", { className: "badge warn" }, "[PAUSED]") : ""),
       el("small", {}, `${t.messages_count} msg · ${t.partitions}p`)));
-  $("list").replaceChildren(items, el("button", { id: "new", onclick: refreshEvents }, "Refrescar"));
+  $("list").replaceChildren(items, el("button", { id: "new", onclick: refreshEvents }, "Refresh"));
 }
 
 function renderEventDetail() {
   const t = ev.topics.find((x) => x.name === ev.sel);
   if (!t) return $("detail").replaceChildren(el("div", { className: "empty" },
-    "No hay tópicos en el bus. Se crean al publicar un mensaje o al lanzar un patrón."));
+    "No topics on the bus yet. Topics are created when a message is published or a pattern is launched."));
   const ui = { head: el("div", { className: "head" }), meta: el("div", { className: "meta" }), groups: el("pre", {}), msgs: el("div", { className: "msgs" }) };
-  const offset = el("input", { type: "number", min: 0, placeholder: "offset (vacío = últimos)", value: ev.offset, onchange: () => { ev.offset = offset.value; loadMessages(); } });
-  const agent = el("input", { type: "text", placeholder: "filtrar por agente", value: ev.agent, onchange: () => { ev.agent = agent.value; loadMessages(); } });
-  const pause = el("button", { className: "btn", onclick: () => { ev.paused = !ev.paused; pause.textContent = ev.paused ? "Reanudar vista" : "Pausar vista"; } }, ev.paused ? "Reanudar vista" : "Pausar vista");
+  const offset = el("input", { type: "number", min: 0, placeholder: "offset (blank = latest)", value: ev.offset, onchange: () => { ev.offset = offset.value; loadMessages(); } });
+  const agent = el("input", { type: "text", placeholder: "Filter by agent", value: ev.agent, onchange: () => { ev.agent = agent.value; loadMessages(); } });
+  const pause = el("button", { className: "btn", onclick: () => { ev.paused = !ev.paused; pause.textContent = ev.paused ? "Resume feed" : "Pause feed"; } }, ev.paused ? "Resume feed" : "Pause feed");
   ui.body = el("div", { className: "blocks" },
     el("div", { className: "block" }, el("h4", {}, "GRUPOS DE CONSUMO:"), ui.groups),
-    el("div", { className: "block" }, el("h4", {}, "MENSAJES:"), el("div", { className: "tools" }, offset, agent, pause), ui.msgs));
+    el("div", { className: "block" }, el("h4", {}, "MESSAGES:"), el("div", { className: "tools" }, offset, agent, pause), ui.msgs));
   ev.ui = ui;
   fillTopicInfo();
   $("detail").replaceChildren(ui.head, ui.meta, ui.body);
@@ -65,17 +65,17 @@ function renderEventDetail() {
 
 function fillTopicInfo() {
   const t = ev.topics.find((x) => x.name === ev.sel), ui = ev.ui;
-  ui.head.replaceChildren(`TÓPICO: ${t.name}`, t.paused ? el("span", { className: "badge warn" }, "[PAUSADO]") : "", el("span", { className: "state" }));
+  ui.head.replaceChildren(`TOPIC: ${t.name}`, t.paused ? el("span", { className: "badge warn" }, "[PAUSED]") : "", el("span", { className: "state" }));
   ui.meta.textContent = `Particiones: ${t.partitions} | Mensajes: ${t.messages_count} | Grupos: ${t.groups.length}`;
   ui.groups.textContent = t.groups.map((g) => {
     const lag = Object.entries(g.lag_by_partition ?? {}).map(([p, n]) => `p${p}:${n}`).join(" ") || "0";
     const committed = Object.entries(g.committed_offsets ?? {}).map(([p, o]) => `p${p}:${o}`).join(" ") || "—";
     return `${g.group}  miembros: ${g.members.join(", ") || "—"}\n  offsets confirmados: ${committed}  |  pendientes: ${lag}`;
-  }).join("\n") || "Sin grupos suscritos.";
+  }).join("\n") || "No subscribed groups.";
 }
 
 function fillMessages(msgs) {
-  if (!msgs.length) return ev.ui.msgs.replaceChildren(el("div", { className: "empty" }, "Sin mensajes para este filtro."));
+  if (!msgs.length) return ev.ui.msgs.replaceChildren(el("div", { className: "empty" }, "No messages match this filter."));
   ev.ui.msgs.replaceChildren(...msgs.map((m) => el("div", { className: "msg" },
     el("span", { className: "dim" }, `#${m.offset ?? "—"} p${m.partition ?? 0}`), el("span", { className: "dim" }, (m.ts ?? "").replace("T", " ").slice(0, 19)),
     el("span", {}, m.from), el("span", { className: "dim" }, m.kind), el("span", { title: m.content }, clip(m.content, 300)))));

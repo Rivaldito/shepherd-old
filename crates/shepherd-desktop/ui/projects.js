@@ -23,22 +23,22 @@ function agentsOfTask(registry, taskId) {
 
 // What an agent is told when launched for a task: the task itself, so nobody retypes it.
 function taskPrompt(task) {
-  const parts = [`Tarea #${task.id}: ${task.title}`];
+  const parts = [`Task #${task.id}: ${task.title}`];
   if (task.description) parts.push(task.description.trim());
   const criteria = (task.criteria ?? []).map((c) => c.replace(/^([-*] \[[ xX]\]|[-*])\s*/, "").trim()).filter(Boolean);
-  if (criteria.length) parts.push("Criterios de aceptación:\n" + criteria.map((c) => `- ${c}`).join("\n"));
+  if (criteria.length) parts.push("Acceptance criteria:\n" + criteria.map((c) => `- ${c}`).join("\n"));
   return parts.join("\n\n");
 }
 
-// A pattern run belongs to a task when its objective starts with "Tarea #N:" (what taskPrompt writes).
+// A pattern run belongs to a task when its objective starts with "Task #N:" (what taskPrompt writes).
 // The run's agents cannot carry the task: the registry uses their task_id for the run's own id.
-const TASK_REF = /^Tarea #(\d+):/;
+const TASK_REF = /^(?:Task|Tarea) #(\d+):/;
 const taskOfRun = (run) => { const m = TASK_REF.exec(run.task ?? ""); return m ? Number(m[1]) : null; };
 const isRunAgent = (agent) => String(agent.task_id ?? "").startsWith("run-");
 
 // The objective to run a pattern with for `task`: keeps whatever the user edited, but always starts with the
 // reference that links the run to the task.
-const ensureTaskPrefix = (text, task) => (TASK_REF.test(text.trim()) ? text.trim() : `Tarea #${task.id}: ${task.title}\n\n${text.trim()}`.trim());
+const ensureTaskPrefix = (text, task) => (TASK_REF.test(text.trim()) ? text.trim() : `Task #${task.id}: ${task.title}\n\n${text.trim()}`.trim());
 
 // What the monitor shows: every task with its direct agents and its pattern runs, then whatever has no task.
 // A run's agents come from the run, refreshed with the live registry record when there is one.

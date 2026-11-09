@@ -17,7 +17,7 @@ async function refreshStatus() {
 }
 
 async function startServer() {
-  sb.busy = true; sb.note = "Arrancando el servidor…"; renderStatus();
+  sb.busy = true; sb.note = "Starting server…"; renderStatus();
   try { sb.status = await invoke("api_start_server"); sb.note = ""; }
   catch (e) { sb.note = String(e); }
   sb.busy = false; renderStatus();
@@ -28,13 +28,13 @@ function renderStatus() {
   const s = sb.status; if (!s) return;
   const bar = $("statusbar");
   const left = [el("span", { className: "dot " + (s.running ? "ok" : "bad") }, s.running ? "●" : "○"),
-    el("span", {}, s.running ? `Servidor Shepherd ${s.version ?? ""} · protocolo ${s.protocol ?? "?"}` : "Sin servidor"),
+    el("span", {}, s.running ? `Shepherd server ${s.version ?? ""} · protocol ${s.protocol ?? "?"}` : "No server"),
     el("span", { className: "dim", title: s.socket }, s.socket)];
   if (!s.running) left.push(el("button", { className: "btn small", disabled: sb.busy || !s.server_bin, onclick: startServer,
-    title: s.server_bin ? s.server_bin : "No se encontró `shepherd`: ponlo en el PATH o define SHEPHERD_BIN" }, "Iniciar servidor"));
+    title: s.server_bin ? s.server_bin : "Could not find `shepherd`. Add it to PATH or set SHEPHERD_BIN." }, "Start server"));
   renderNotice();
   bar.replaceChildren(...left, el("span", { className: "grow" }), el("span", { className: "note" }, sb.note),
-    el("button", { className: "mini", title: "Comandos y CLI", onclick: toggleDock }, "Comandos · Ctrl+Shift+P"));
+    el("button", { className: "mini", title: "Commands and CLI", onclick: toggleDock }, "Commands · Ctrl+Shift+P"));
 }
 
 // A row under the panels (not a pop-up) that says why tasks and role agents fail, and how to fix it.
@@ -43,18 +43,18 @@ function renderNotice() {
   box.hidden = !shepherdOff();
   if (box.hidden) return;
   if (!sb.enabling) {
-    box.replaceChildren(el("span", {}, "La capa Shepherd está desactivada en este servidor: sin ella no se pueden crear tareas, lanzar agentes con rol ni ejecutar patrones."),
-      el("button", { className: "btn small", onclick: async () => { sb.cfg = await invoke("shepherd_config").catch(() => null); sb.enabling = true; renderNotice(); } }, "Activar Shepherd…"));
+    box.replaceChildren(el("span", {}, "The Shepherd layer is disabled on this server. Tasks, role based agents, and patterns are unavailable."),
+      el("button", { className: "btn small", onclick: async () => { sb.cfg = await invoke("shepherd_config").catch(() => null); sb.enabling = true; renderNotice(); } }, "Enable Shepherd…"));
     return;
   }
-  box.replaceChildren(el("span", {}, `Se escribirá «[shepherd] enabled = true» en ${sb.cfg?.path ?? "config.toml"} (con copia .bak) y se REINICIARÁ el servidor: se cerrarán todos los terminales y agentes abiertos.`),
-    el("button", { className: "btn small danger", disabled: sb.busy, onclick: enableShepherdNow }, sb.busy ? "Reiniciando…" : "Activar y reiniciar"),
-    el("button", { className: "mini", disabled: sb.busy, onclick: () => { sb.enabling = false; renderNotice(); } }, "Cancelar"));
+  box.replaceChildren(el("span", {}, `This will write “[shepherd] enabled = true” to ${sb.cfg?.path ?? "config.toml"} (keeping a .bak copy) and restart the server, closing all open terminals and agents.`),
+    el("button", { className: "btn small danger", disabled: sb.busy, onclick: enableShepherdNow }, sb.busy ? "Restarting…" : "Enable and restart"),
+    el("button", { className: "mini", disabled: sb.busy, onclick: () => { sb.enabling = false; renderNotice(); } }, "Cancel"));
 }
 
 async function enableShepherdNow() {
   sb.busy = true; renderNotice();
-  try { sb.status = await invoke("enable_shepherd"); sb.enabling = false; flash("Shepherd activado"); }
+  try { sb.status = await invoke("enable_shepherd"); sb.enabling = false; flash("Shepherd enabled"); }
   catch (e) { flash(String(e)); }
   sb.busy = false;
   await refreshStatus();

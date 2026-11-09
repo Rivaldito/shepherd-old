@@ -13,7 +13,7 @@ function scopeOf(key) {
   const [kind, ...rest] = key.split(":"), id = rest.join(":");
   for (const g of mo.tree) {
     if (kind === "task" && g.kind === "task" && String(g.task.id) === id) return { key, title: `#${g.task.id} ${g.task.title}`, agents: allAgents(g) };
-    if (kind === "none" && g.kind === "none") return { key, title: "Sin tarea", agents: allAgents(g) };
+    if (kind === "none" && g.kind === "none") return { key, title: "No task", agents: allAgents(g) };
     for (const r of g.runs) if (kind === "run" && r.run.id === id) return { key, title: `${r.run.pattern} (${r.run.id})`, agents: r.agents, run: r.run };
     const found = allAgents(g).find((a) => kind === "agent" && a.id === id);
     if (found) return { key, title: `${found.role} (${found.id})`, agents: [found] };
@@ -67,17 +67,18 @@ function renderMonitorList() {
     el("span", {}, label + " ", badge ?? ""), el("small", {}, meta ?? "")));
   for (const g of mo.tree) {
     const nAgents = allAgents(g).length;
-    row(0, g.kind === "task" ? `task:${g.task.id}` : "none", g.kind === "task" ? `#${g.task.id} ${g.task.title}` : "Sin tarea", `${g.runs.length} run(s) · ${nAgents} agente(s)`);
+    row(0, g.kind === "task" ? `task:${g.task.id}` : "none", g.kind === "task" ? `#${g.task.id} ${g.task.title}` : "No task", `${g.runs.length} run(s) · ${nAgents} agent(s)`);
     for (const a of g.direct) row(1, `agent:${a.id}`, `${a.role} (${a.id})`, "directo", stateSpan(a.state));
     for (const r of g.runs) {
       const [txt, cls] = runBadge(r.run.state);
-      row(1, `run:${r.run.id}`, `Run ${r.run.id.replace(/^run-/, "")}`, `${r.agents.length} agente(s)`, el("span", { className: "badge " + cls }, txt));
+      row(1, `run:${r.run.id}`, `Run ${r.run.id.replace(/^run-/, "")}`, `${r.agents.length} agent(s)`, el("span", { className: "badge " + cls }, txt));
       for (const a of r.agents) row(2, `agent:${a.id}`, `${a.role} (${a.id})`, a.vendor ?? "", stateSpan(a.state));
     }
   }
-  if (!mo.tree.length) items.append(el("div", { className: "dim pad" }, "No hay tareas, runs ni agentes en este proyecto."));
-  const foot = el("div", { className: "panel-actions" }, el("button", { className: "btn small", onclick: refreshMonitor }, "Refrescar"));
-  if (!inMonitorWindow()) foot.append(el("button", { className: "btn small", title: "Abre este monitor en su propia ventana", onclick: () => openMonitorWindow(mo.sel) }, "Ventana nueva"));
+  if (!mo.tree.length) items.append(el("div", { className: "dim pad" }, "No tasks, runs, or agents in this project."));
+  const foot = el("div", { className: "panel-actions" }, el("button", { className: "btn small", onclick: refreshMonitor }, "Refresh"),
+    cleanButton(cl.busForce ? "Force clear" : "Clear message bus", async () => { await cleanBus(); await refreshMonitor(); }, renderMonitorList, "Delete bus messages, topics, and subscriptions"));
+  if (!inMonitorWindow()) foot.append(el("button", { className: "btn small", title: "Open this monitor in a separate window", onclick: () => openMonitorWindow(mo.sel) }, "Open in new window"));
   $("list").replaceChildren(items, foot);
 }
 
@@ -86,14 +87,14 @@ const stateSpan = (state) => { const [txt, cls] = stateBadge(state); return el("
 // Detail is built once per selection so typing in the filters survives the polling.
 function renderMonitorDetail() {
   const sc = scopeOf(mo.sel);
-  if (!sc) return $("detail").replaceChildren(el("div", { className: "empty" }, "Selecciona una tarea, un run o un agente."));
+  if (!sc) return $("detail").replaceChildren(el("div", { className: "empty" }, "Select a task, run, or agent."));
   const ui = { head: el("div", { className: "head" }, sc.title, el("span", { className: "state" })), meta: el("div", { className: "meta" }), agents: el("div", { className: "block" }), feed: el("div", { className: "mfeed" }) };
-  const who = el("select", { onchange: () => { mo.filterAgent = who.value; renderFeed(); } }, el("option", { value: "" }, "todos los agentes"));
+  const who = el("select", { onchange: () => { mo.filterAgent = who.value; renderFeed(); } }, el("option", { value: "" }, "All agents"));
   const text = el("input", { type: "text", placeholder: "filtrar texto", value: mo.text, oninput: () => { mo.text = text.value; renderFeed(); } });
-  const pause = el("button", { className: "btn small", onclick: () => { mo.paused = !mo.paused; pause.textContent = mo.paused ? "Reanudar" : "Pausar vista"; } }, mo.paused ? "Reanudar" : "Pausar vista");
+  const pause = el("button", { className: "btn small", onclick: () => { mo.paused = !mo.paused; pause.textContent = mo.paused ? "Resume" : "Pause feed"; } }, mo.paused ? "Resume" : "Pause feed");
   ui.who = who;
   const blocks = el("div", { className: "blocks" }, ui.agents,
-    el("div", { className: "block" }, el("h4", {}, "COMUNICACIÓN:"), el("div", { className: "tools" }, who, text, pause), ui.feed));
+    el("div", { className: "block" }, el("h4", {}, "MESSAGES:"), el("div", { className: "tools" }, who, text, pause), ui.feed));
   mo.ui = ui;
   fillAgents();
   $("detail").replaceChildren(ui.head, ui.meta, blocks);
@@ -102,14 +103,14 @@ function renderMonitorDetail() {
 function fillAgents() {
   const sc = scopeOf(mo.sel); if (!sc || !mo.ui) return;
   const { ui } = mo;
-  ui.meta.textContent = [sc.run ? `Patrón: ${sc.run.pattern} · ${sc.run.kind ?? ""} · estado ${sc.run.state}` : null, sc.run?.task ? `Objetivo: ${sc.run.task.split("\n")[0].slice(0, 90)}` : null, `${sc.agents.length} agente(s)`].filter(Boolean).join(" | ");
+  ui.meta.textContent = [sc.run ? `Pattern: ${sc.run.pattern} · ${sc.run.kind ?? ""} · state ${sc.run.state}` : null, sc.run?.task ? `Objective: ${sc.run.task.split("\n")[0].slice(0, 90)}` : null, `${sc.agents.length} agent(s)`].filter(Boolean).join(" | ");
   const known = [...ui.who.options].slice(1).map((o) => o.value);
   if (known.join() !== sc.agents.map((a) => a.id).join()) {
-    ui.who.replaceChildren(el("option", { value: "" }, "todos los agentes"), ...sc.agents.map((a) => el("option", { value: a.id, selected: a.id === mo.filterAgent }, `${a.role} (${a.id})`)));
+    ui.who.replaceChildren(el("option", { value: "" }, "All agents"), ...sc.agents.map((a) => el("option", { value: a.id, selected: a.id === mo.filterAgent }, `${a.role} (${a.id})`)));
   }
-  ui.agents.replaceChildren(el("h4", {}, "AGENTES:"), ...(sc.agents.length ? sc.agents.map((a) => el("div", { className: "arow" },
-    el("span", {}, `${a.role} (${a.id}) `, stateSpan(a.state)), el("span", { className: "dim" }, [a.vendor, a.model].filter(Boolean).join("/") + (a.workspace ? ` · space ${a.workspace}` : "")), el("span", { className: "grow" }),
-    !inMonitorWindow() && a.pane && !TERMINAL_STATES.includes(a.state) ? el("button", { className: "mini", onclick: () => focusPane(a.pane) }, "Ir al terminal") : "")) : [el("div", { className: "dim" }, "Sin agentes todavía.")]));
+  ui.agents.replaceChildren(el("h4", {}, "AGENTS:"), ...(sc.agents.length ? sc.agents.map((a) => el("div", { className: "arow" },
+    el("span", {}, `${a.role} (${a.id}) `, stateSpan(a.state)), el("span", { className: "dim" }, [a.vendor, a.model].filter(Boolean).join("/") + (a.workspace ? ` · workspace ${a.workspace}` : "")), el("span", { className: "grow" }),
+    !inMonitorWindow() && a.pane && !TERMINAL_STATES.includes(a.state) ? el("button", { className: "mini", onclick: () => focusPane(a.pane) }, "Go to terminal") : "")) : [el("div", { className: "dim" }, "No agents yet.")]));
 }
 
 async function loadFeed() {
@@ -131,7 +132,7 @@ function renderFeed() {
   const nearEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
   box.replaceChildren(...(mo.feedError ? [el("div", { className: "bad" }, mo.feedError)] : rows.length ? rows.map((m) => el("div", { className: "m" },
     el("span", { className: "dim" }, clock(m.ts)), el("span", {}, m.from, m.to ? ` → ${m.to}` : m.topic ? ` → #${m.topic}` : ""), el("span", { className: "dim" }, m.kind ?? ""),
-    el("span", { title: m.content }, m.content.length > 600 ? m.content.slice(0, 600) + "…" : m.content))) : [el("div", { className: "dim" }, mo.feed.length ? "Ningún mensaje coincide con el filtro." : "Aún no hay mensajes de estos agentes.")]));
+    el("span", { title: m.content }, m.content.length > 600 ? m.content.slice(0, 600) + "…" : m.content))) : [el("div", { className: "dim" }, mo.feed.length ? "No messages match this filter." : "No messages from these agents yet.")]));
   if (nearEnd) box.scrollTop = box.scrollHeight;
 }
 

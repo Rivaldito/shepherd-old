@@ -211,15 +211,31 @@ pub fn call(path: &Path, method: &str, params: Value) -> Result<Value, String> {
 /// Subscribes and blocks, handing every pushed event to `on_event`. Returns `Ok` when the server
 /// closes the connection and `Err` for a rejected subscription or `events_lost`; the caller reconnects.
 #[cfg(unix)]
+#[allow(dead_code)] // the tests use it; the app subscribes through `read_subscriptions`
 pub fn read_events(
     path: &Path,
     types: &[&str],
     on_ready: &mut dyn FnMut(),
     on_event: &mut dyn FnMut(Value),
 ) -> Result<(), String> {
+    let subs: Vec<Value> = types.iter().map(|t| json!({ "type": t })).collect();
+    read_subscriptions(path, subs, on_ready, &mut |event| {
+        on_event(event);
+        true
+    })
+}
+
+/// Like `read_events` with explicit subscriptions (some need parameters, e.g. a `pane_id`). `on_event`
+/// returns `false` to end the subscription so the caller can reconnect with a new list.
+#[cfg(unix)]
+pub fn read_subscriptions(
+    path: &Path,
+    subs: Vec<Value>,
+    on_ready: &mut dyn FnMut(),
+    on_event: &mut dyn FnMut(Value) -> bool,
+) -> Result<(), String> {
     let mut stream = UnixStream::connect(path)
         .map_err(|e| format!("no se pudo conectar a {}: {e}", path.display()))?;
-    let subs: Vec<Value> = types.iter().map(|t| json!({ "type": t })).collect();
     let mut line = serde_json::to_vec(&json!({ "id": "desktop-events", "method": "events.subscribe", "params": { "subscriptions": subs } }))
         .map_err(|e| e.to_string())?;
     line.push(b'\n');
@@ -236,9 +252,31 @@ pub fn read_events(
             on_ready();
             continue;
         }
-        on_event(value);
+        if !on_event(value) {
+            break;
+        }
     }
     Ok(())
+}
+
+/// `pane.agent_status_changed` needs a `pane_id` per subscription (a global one is rejected), so the
+/// UI asks for it on every pane of the snapshot, like the TUI gets status changes pushed per pane.
+pub fn status_subscriptions(snapshot: &Value) -> Vec<Value> {
+    snapshot["snapshot"]["panes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| p["pane_id"].as_str())
+        .map(|id| json!({ "type": "pane.agent_status_changed", "pane_id": id }))
+        .collect()
+}
+
+/// Events after which the pane set (and so the status subscriptions) is stale.
+pub fn changes_panes(event: &Value) -> bool {
+    matches!(
+        event["event"].as_str(),
+        Some("pane.created" | "pane.closed" | "pane.exited" | "pane.agent_detected" | "pane.moved")
+    )
 }
 
 /// What the UI console may run: the runtime command families plus `--version`/`--help`.
@@ -415,11 +453,22 @@ pub fn call(_: &Path, _: &str, _: Value) -> Result<Value, String> {
 }
 
 #[cfg(not(unix))]
+#[allow(dead_code)] // the tests use it; the app subscribes through `read_subscriptions`
 pub fn read_events(
     _: &Path,
     _: &[&str],
     _: &mut dyn FnMut(),
     _: &mut dyn FnMut(Value),
+) -> Result<(), String> {
+    Err("la conexión al servidor solo está implementada en Unix".into())
+}
+
+#[cfg(not(unix))]
+pub fn read_subscriptions(
+    _: &Path,
+    _: Vec<Value>,
+    _: &mut dyn FnMut(),
+    _: &mut dyn FnMut(Value) -> bool,
 ) -> Result<(), String> {
     Err("la conexión al servidor solo está implementada en Unix".into())
 }
@@ -475,6 +524,22 @@ mod tests {
             Some(PathBuf::from("/home/u/.config/shepherd-dev/shepherd.sock"))
         );
         assert_eq!(socket_from_status("status: running\n"), None);
+    }
+
+    #[test]
+    fn status_subscriptions_cover_every_pane() {
+        let snapshot = json!({"snapshot": {"panes": [{"pane_id": "w1:p1"}, {"pane_id": "w1:p2"}]}});
+        assert_eq!(
+            status_subscriptions(&snapshot),
+            vec![
+                json!({"type": "pane.agent_status_changed", "pane_id": "w1:p1"}),
+                json!({"type": "pane.agent_status_changed", "pane_id": "w1:p2"}),
+            ]
+        );
+        assert!(changes_panes(&json!({"event": "pane.created"})));
+        assert!(!changes_panes(
+            &json!({"event": "pane.agent_status_changed"})
+        ));
     }
 
     #[test]

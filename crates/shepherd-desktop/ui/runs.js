@@ -37,7 +37,7 @@ async function controlRun(r, action) {
     : action === "resume" ? await act("shepherd.pattern.run.resume", { id: r.id, root })
     : await act("shepherd.pattern.run.stop", { id: r.id, root, confirm: true });
   rn.busy = false;
-  if (!res) flash(`No se pudo ${{ pause: "pausar", resume: "reanudar", stop: "detener" }[action]}: ${ws.lastError || "error desconocido"}`);
+  if (!res) flash(`Could not ${{ pause: "pause", resume: "resume", stop: "stop" }[action]}: ${ws.lastError || "unknown error"}`);
   await refreshRuns(); renderRuns();
 }
 
@@ -45,9 +45,9 @@ function runControls(r) {
   const live = ["running", "stalled", "degraded"].includes(r.state);
   const btn = (label, action, title) => el("button", { className: "btn small", disabled: rn.busy, title, onclick: () => controlRun(r, action) }, label);
   return [
-    live ? btn("Pausar", "pause", "Los agentes dejan de recibir mensajes del bus") : "",
-    r.state === "paused" ? btn("Reanudar", "resume", "Vuelve a entregar los mensajes pendientes") : "",
-    live || r.state === "paused" ? btn(rn.confirmStop === r.id ? "Confirmar: detener y cerrar agentes" : "Detener", "stop", "Cierra los agentes del run") : "",
+    live ? btn("Pause", "pause", "Agents stop receiving bus messages") : "",
+    r.state === "paused" ? btn("Resume", "resume", "Resume delivery of pending messages") : "",
+    live || r.state === "paused" ? btn(rn.confirmStop === r.id ? "Confirm: stop and close agents" : "Stop", "stop", "Close the agents in this run") : "",
   ];
 }
 
@@ -57,34 +57,35 @@ function renderRuns() {
     const [txt, cls] = runBadge(r.state);
     items.append(el("button", { className: "item" + (r.id === rn.sel ? " sel" : ""), onclick: () => { rn.sel = r.id; renderRuns(); } },
       el("span", {}, `${r.pattern} (${r.id}) `, el("span", { className: "badge " + cls }, txt)),
-      el("small", {}, `${r.live_agents}/${(r.agents ?? []).length} agentes`)));
+      el("small", {}, `${r.live_agents}/${(r.agents ?? []).length} agents`)));
   }
   $("list").replaceChildren(items, el("div", { className: "panel-actions" },
-    el("button", { className: "btn small", onclick: () => { rn.launching = true; rn.form ??= runLauncher(); renderRuns(); } }, "+ Ejecutar patrón"),
-    el("button", { className: "btn small", onclick: refreshRuns }, "Refrescar")));
+    el("button", { className: "btn small", onclick: () => { rn.launching = true; rn.form ??= runLauncher(); renderRuns(); } }, "+ Run pattern"),
+    cleanButton("Clear", cleanRuns, renderRuns, "Remove completed runs and agents that no longer exist"),
+    el("button", { className: "btn small", onclick: refreshRuns }, "Refresh")));
   if (rn.launching) {
     rn.form.fill(rn.patterns);
-    return $("detail").replaceChildren(el("div", { className: "head" }, "EJECUTAR PATRÓN", el("span", { className: "state" })), el("div", { className: "blocks" }, rn.form.el));
+    return $("detail").replaceChildren(el("div", { className: "head" }, "RUN PATTERN", el("span", { className: "state" })), el("div", { className: "blocks" }, rn.form.el));
   }
   const r = rn.list.find((x) => x.id === rn.sel);
   if (!r) return $("detail").replaceChildren(el("div", { className: "empty" },
-    "No hay runs de patrones. Ejecuta uno con «+ Ejecutar patrón» (equivale a `shepherd pattern run`)."));
+    "No pattern runs yet. Start one with “+ Run pattern” (the same as `shepherd pattern run`)."));
 
   const [txt, cls] = runBadge(r.state);
   const block = (title, body) => el("div", { className: "block" }, el("h4", {}, title), el("pre", {}, body));
   const detail = el("div", { className: "blocks" });
-  if (r.stalled_reason) detail.append(el("div", { className: "notice" }, "RUN ATASCADO:\n" + r.stalled_reason));
-  detail.append(block("OBJETIVO:", r.task || "Sin objetivo."));
+  if (r.stalled_reason) detail.append(el("div", { className: "notice" }, "RUN STALLED:\n" + r.stalled_reason));
+  detail.append(block("OBJECTIVE:", r.task || "No objective."));
   if (r.error) detail.append(block("ERROR:", r.error));
-  detail.append(block("AGENTES:", (r.agents ?? []).map((a) =>
-    `${a.start ? "▶ " : "  "}${a.id} (${a.role}) [${a.state}]${[a.vendor, a.model].filter(Boolean).length ? " " + [a.vendor, a.model].filter(Boolean).join("/") : ""}`).join("\n") || "Ninguno."));
-  detail.append(block("TÓPICOS:", (r.topics ?? []).join(", ") || "Ninguno."));
-  if (r.quiesced) detail.append(block("NOTA:", "Terminó por inactividad; un mensaje nuevo en sus tópicos lo reabre."));
-  const meta = [`Topología: ${r.kind}`, `Creado: ${r.created_at}`, `Actualizado: ${r.updated_at}`, r.finished_at && `Terminado: ${r.finished_at}`, r.worktree && `Worktree: ${r.worktree}`].filter(Boolean);
+  detail.append(block("AGENTS:", (r.agents ?? []).map((a) =>
+    `${a.start ? "▶ " : "  "}${a.id} (${a.role}) [${a.state}]${[a.vendor, a.model].filter(Boolean).length ? " " + [a.vendor, a.model].filter(Boolean).join("/") : ""}`).join("\n") || "None."));
+  detail.append(block("TOPICS:", (r.topics ?? []).join(", ") || "None."));
+  if (r.quiesced) detail.append(block("NOTE:", "Paused due to inactivity; a new message on one of its topics will reopen it."));
+  const meta = [`Topology: ${r.kind}`, `Created: ${r.created_at}`, `Updated: ${r.updated_at}`, r.finished_at && `Finished: ${r.finished_at}`, r.worktree && `Worktree: ${r.worktree}`].filter(Boolean);
   $("detail").replaceChildren(
     el("div", { className: "head" }, `RUN: ${r.pattern} (ID: ${r.id})`, el("span", { className: "badge " + cls }, txt), el("span", { className: "state" }),
       ...runControls(r),
-      el("button", { className: "btn small", onclick: () => showMonitorTab(`run:${r.id}`) }, "Ver comunicación"),
-      el("button", { className: "btn small", onclick: () => openMonitorWindow(`run:${r.id}`) }, "Ventana nueva")),
+      el("button", { className: "btn small", onclick: () => showMonitorTab(`run:${r.id}`) }, "View messages"),
+      el("button", { className: "btn small", onclick: () => openMonitorWindow(`run:${r.id}`) }, "Open in new window")),
     el("div", { className: "meta" }, meta.join(" | ")), detail);
 }

@@ -30,9 +30,9 @@ assert.deepEqual(agentsOfTask([], 3), []);
 
 // --- taskPrompt
 assert.equal(taskPrompt({ id: 7, title: "Login", description: "  Añadir login  ", criteria: ["- [ ] funciona", "- [x] con tests", "* otro", ""] }),
-  "Tarea #7: Login\n\nAñadir login\n\nCriterios de aceptación:\n- funciona\n- con tests\n- otro");
-assert.equal(taskPrompt({ id: 1, title: "Solo título" }), "Tarea #1: Solo título");
-assert.equal(taskPrompt({ id: 2, title: "T", description: "", criteria: [] }), "Tarea #2: T");
+  "Task #7: Login\n\nAñadir login\n\nAcceptance criteria:\n- funciona\n- con tests\n- otro");
+assert.equal(taskPrompt({ id: 1, title: "Solo título" }), "Task #1: Solo título");
+assert.equal(taskPrompt({ id: 2, title: "T", description: "", criteria: [] }), "Task #2: T");
 
 // --- runs belong to tasks through their objective
 assert.equal(taskOfRun({ task: "Tarea #7: Login\n\ncuerpo" }), 7);
@@ -44,9 +44,9 @@ assert.equal(isRunAgent({ task_id: "run-fake-2831" }), true);
 assert.equal(isRunAgent({ task_id: "3" }), false);
 assert.equal(isRunAgent({}), false);
 const task7 = { id: 7, title: "Login" };
-assert.equal(ensureTaskPrefix("Tarea #7: Login\n\nmás texto", task7), "Tarea #7: Login\n\nmás texto"); // already linked: untouched
+assert.equal(ensureTaskPrefix("Task #7: Login\n\nmás texto", task7), "Task #7: Login\n\nmás texto"); // already linked: untouched
 assert.equal(ensureTaskPrefix("  solo mi objetivo  ", task7), "Tarea #7: Login\n\nsolo mi objetivo"); // prefix added
-assert.equal(ensureTaskPrefix("", task7), "Tarea #7: Login");
+assert.equal(ensureTaskPrefix("", task7), "Task #7: Login");
 assert.equal(taskOfRun({ task: ensureTaskPrefix("lo que sea", task7) }), 7); // what we write is what we parse
 
 // --- the monitor tree

@@ -11,23 +11,31 @@ const VENDOR = [["command","text"],["args","lines"],["models","lines"],["default
 const ROLE = [["vendor","text"],["model","text"],["fallback","lines"],["must_differ_from","text"],
   ["worktree","bool"],["can_spawn","bool"],["skills","lines"],["prompt","area"]];
 const SPECS = { vendors: VENDOR, roles: ROLE };
-const TABS = [["agents", "Agentes"], ["tasks", "Tareas"], ["runs", "Runs"], ["monitor", "Monitor"], ["models", "Modelos"], ["patterns", "Patrones"], ["skills", "Skills"], ["git", "Git"], ["events", "Eventos"], ["files", "Archivos"]];
+const TABS = [["agents", "Agents"], ["tasks", "Tasks"], ["runs", "Runs"], ["monitor", "Monitor"], ["models", "Models"], ["patterns", "Patterns"], ["skills", "Skills"], ["git", "Git"], ["events", "Events"], ["files", "Files"]];
 
 let tab = window.__view?.view === "monitor" ? "monitor" : "agents", files = [], models = null, sel = null; // sel: {section,name,isNew} | file entry
 let dirty = false, armed = null;
 
 // One poller for the file-backed tabs (agents, runs, tasks): re-runs `fn` every 3 s while `key` is the open tab.
-let pollTimer = 0;
+// Like the TUI, it is driven by the server's events: `pollNow` re-runs the open tab's refresh as soon as an
+// agent changes state, and the timer is only the safety net for changes that do not raise an event.
+let pollTimer = 0, pollFn = null, pollKey = null, pollSoon = 0;
 function poll(key, fn, ms = 3000) {
   clearInterval(pollTimer);
+  pollKey = key; pollFn = fn;
+  invokeP("watch_project").catch(() => {}); // file changes of this project refresh the tab at once
   pollTimer = setInterval(() => (tab !== key ? clearInterval(pollTimer) : $("shepherd-panel").hidden || fn()), ms);
+}
+function pollNow() {
+  clearTimeout(pollSoon);
+  pollSoon = setTimeout(() => { if (pollFn && tab === pollKey && !$("shepherd-panel").hidden) pollFn(); }, 250);
 }
 
 const setMsg = (box, text, cls = "") => { box.textContent = text; box.className = cls; };
 
 // Unsaved-changes guard without pop-ups: first attempt warns, second one discards.
 function leave(key, box) {
-  if (dirty && armed !== key) { armed = key; setMsg(box, "Cambios sin guardar: guarda, o repite la acción para descartarlos.", "bad"); return false; }
+  if (dirty && armed !== key) { armed = key; setMsg(box, "Unsaved changes: save them, or repeat the action to discard.", "bad"); return false; }
   armed = null; dirty = false; return true;
 }
 const msgBox = () => $("msgs") || document.createElement("pre");
@@ -64,24 +72,24 @@ async function draw() {
 
   const items = el("div", { id: "items" });
   if (tab === "models") {
-    for (const [section, title, meta] of [["vendors", "Vendors", (v) => v.disabled ? "desactivado" : v.default_model], ["roles", "Roles", (r) => [r.vendor, r.model].filter(Boolean).join("/")]]) {
+    for (const [section, title, meta] of [["vendors", "Vendors", (v) => v.disabled ? "disabled" : v.default_model], ["roles", "Roles", (r) => [r.vendor, r.model].filter(Boolean).join("/")]]) {
       items.append(el("h3", {}, title));
       for (const [name, v] of Object.entries(models[section]))
         items.append(listItem({ title: name, meta: meta(v), off: v.disabled, active: sel?.section === section && sel.name === name && !sel.isNew, onclick: () => pick({ section, name }) }));
     }
-    if (sel?.isNew) items.append(listItem({ title: "(nuevo " + (sel.section === "vendors" ? "vendor" : "rol") + ")", active: true, onclick: () => {} }));
+    if (sel?.isNew) items.append(listItem({ title: "(new " + (sel.section === "vendors" ? "vendor" : "role") + ")", active: true, onclick: () => {} }));
     $("list").replaceChildren(items,
-      el("button", { id: "new", onclick: () => pick({ section: "vendors", name: "", isNew: true }) }, "+ Nuevo vendor"),
-      el("button", { id: "new", onclick: () => pick({ section: "roles", name: "", isNew: true }) }, "+ Nuevo rol"));
-    return sel ? drawForm() : $("detail").replaceChildren(el("div", { className: "empty" }, "Selecciona un vendor o un rol."));
+      el("button", { id: "new", onclick: () => pick({ section: "vendors", name: "", isNew: true }) }, "+ New vendor"),
+      el("button", { id: "new", onclick: () => pick({ section: "roles", name: "", isNew: true }) }, "+ New role"));
+    return sel ? drawForm() : $("detail").replaceChildren(el("div", { className: "empty" }, "Select a vendor or role."));
   }
-  for (const [g, title] of [["config", "Configuración"], ["patterns", "Patrones (YAML)"]]) {
+  for (const [g, title] of [["config", "Settings"], ["patterns", "Patterns (YAML)"]]) {
     items.append(el("h3", {}, title));
     for (const f of files.filter((x) => x.group === g))
-      items.append(listItem({ title: f.label, meta: f.exists ? "" : "nuevo", active: sel?.path === f.path, onclick: () => pick(f) }));
+      items.append(listItem({ title: f.label, meta: f.exists ? "" : "new", active: sel?.path === f.path, onclick: () => pick(f) }));
   }
   $("list").replaceChildren(items);
-  sel && sel.path ? drawRaw() : $("detail").replaceChildren(el("div", { className: "empty" }, "Selecciona un archivo."));
+  sel && sel.path ? drawRaw() : $("detail").replaceChildren(el("div", { className: "empty" }, "Select a file."));
 }
 
 function drawForm() {
@@ -91,10 +99,10 @@ function drawForm() {
   const state = el("span", { className: "state" });
   const form = el("div", { className: "form" });
   const inputs = [];
-  const mark = () => { dirty = true; state.textContent = "● sin guardar"; };
+  const mark = () => { dirty = true; state.textContent = "● unsaved"; };
 
   let nameInput = null;
-  if (isNew) { nameInput = el("input", { type: "text", placeholder: "nombre", oninput: mark }); form.append(el("label", {}, "nombre"), nameInput); }
+  if (isNew) { nameInput = el("input", { type: "text", placeholder: "Name", oninput: mark }); form.append(el("label", {}, "Name"), nameInput); }
   for (const [path, kind] of SPECS[section]) {
     const v = get(draft, path);
     let input;
@@ -110,22 +118,20 @@ function drawForm() {
       set(draft, path, kind === "bool" ? i.checked : kind === "lines" ? i.value.split("\n").map((s) => s.trim()).filter(Boolean) : i.value);
     return draft;
   };
-  const report = (w) => setMsg($("msgs"), w.length ? w.join("\n") : "Guardado, sin problemas.", w.length ? "bad" : "ok");
+  const report = (w) => setMsg($("msgs"), w.length ? w.join("\n") : "Saved successfully.", w.length ? "bad" : "ok");
   const save = el("button", { className: "btn primary", onclick: async () => {
     const name = isNew ? nameInput.value.trim() : sel.name;
     try {
       const w = await invoke(section === "vendors" ? "save_vendor" : "save_role", { name, [section === "vendors" ? "vendor" : "role"]: collect() });
       dirty = false; sel = { section, name }; await draw(); report(w);
     } catch (e) { setMsg(msgs, String(e), "bad"); }
-  } }, "Guardar");
-  const head = el("div", { className: "head" }, (section === "vendors" ? "VENDOR: " : "ROL: ") + (isNew ? "nuevo" : sel.name), state, save);
+  } }, "Save");
+  const head = el("div", { className: "head" }, (section === "vendors" ? "VENDOR: " : "ROLE: ") + (isNew ? "new" : sel.name), state, save);
   if (!isNew) {
-    let sure = false;
     const del = el("button", { className: "btn danger", onclick: async () => {
-      if (!sure) { sure = true; del.textContent = "¿Seguro? Pulsa otra vez"; return; }
       try { const w = await invoke("delete_entry", { section, name: sel.name }); dirty = false; sel = null; await draw(); report(w); }
       catch (e) { setMsg(msgs, String(e), "bad"); }
-    } }, "Eliminar");
+    } }, "Delete");
     head.append(del);
   }
   $("detail").replaceChildren(head, form, msgs);
@@ -133,18 +139,32 @@ function drawForm() {
 
 async function drawRaw() {
   const f = sel;
-  const msgs = el("pre", { id: "msgs" }, f.path);
-  const state = el("span", { className: "state" });
-  const ed = el("textarea", { id: "editor", spellcheck: false, value: await invokeP("read_file", { path: f.path }) });
+  let original = await invokeP("read_file", { path: f.path });
+  const msgs = el("pre", { id: "msgs" });
+  const state = el("span", { className: "file-state", "aria-live": "polite" }, "Saved");
+  const ed = el("textarea", { id: "editor", className: "file-editor", spellcheck: false, wrap: "off", value: original, "aria-label": `Edit ${f.label}` });
   const save = el("button", { className: "btn primary", disabled: true, onclick: async () => {
     try {
       const w = await invokeP("save_file", { path: f.path, text: ed.value });
-      dirty = false; state.textContent = ""; save.disabled = true;
-      setMsg(msgs, w.length ? w.join("\n") : "Guardado, sin problemas.", w.length ? "bad" : "ok");
+      original = ed.value; dirty = false; armed = null; state.textContent = "Saved"; state.className = "file-state"; save.disabled = true; discard.disabled = true;
+      setMsg(msgs, w.length ? w.join("\n") : "Saved successfully.", w.length ? "bad" : "ok");
     } catch (e) { setMsg(msgs, String(e), "bad"); }
-  } }, "Guardar (Ctrl+S)");
-  ed.oninput = () => { dirty = true; state.textContent = "● sin guardar"; save.disabled = false; };
-  $("detail").replaceChildren(el("div", { className: "head" }, f.label, state, save), ed, msgs);
+  } }, "Save (Ctrl+S)");
+  const discard = el("button", { className: "btn secondary", disabled: true, onclick: () => {
+    ed.value = original; dirty = false; armed = null; save.disabled = true; discard.disabled = true;
+    state.textContent = "Saved"; state.className = "file-state"; setMsg(msgs, "Local edits discarded.", "ok"); ed.focus();
+  } }, "Discard changes");
+  ed.oninput = () => {
+    dirty = ed.value !== original; armed = null;
+    state.textContent = dirty ? "Unsaved changes" : "Saved";
+    state.className = "file-state" + (dirty ? " dirty" : "");
+    save.disabled = !dirty; discard.disabled = !dirty;
+  };
+  const toolbar = el("div", { className: "file-toolbar" },
+    el("div", { className: "file-heading" }, el("strong", {}, f.label), el("span", { className: "file-path", title: f.path }, f.path)),
+    el("div", { className: "file-actions" }, state, discard, save));
+  const editor = el("div", { className: "file-editor-wrap" }, ed);
+  $("detail").replaceChildren(toolbar, editor, msgs);
 }
 
 addEventListener("keydown", (e) => {

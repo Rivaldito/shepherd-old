@@ -12,21 +12,21 @@ assert.deepEqual(splitArgs(String.raw`a\ b c`), { args: ["a b", "c"] });
 assert.deepEqual(splitArgs(`x "" y`), { args: ["x", "", "y"] }); // an empty quoted argument is kept
 assert.deepEqual(splitArgs("a; touch pwned"), { args: ["a;", "touch", "pwned"] }); // no shell syntax: just words
 assert.deepEqual(splitArgs(""), { args: [] });
-assert.deepEqual(splitArgs(`a "b`), { error: "comilla sin cerrar" });
+assert.deepEqual(splitArgs(`a "b`), { error: "Unclosed quote" });
 assert.deepEqual(splitArgs(`ñandú "ü ö"`), { args: ["ñandú", "ü ö"] });
 
 // --- matchCommands
 const items = [
-  { group: "Spaces", title: "Nuevo space…" }, { group: "Pestañas", title: "Nueva pestaña" },
-  { group: "Paneles", title: "Dividir a la derecha" }, { group: "Paneles", title: "Cerrar panel" },
-  { group: "Navegar", title: "Ir a pestaña: logs" }, { group: "Agentes", title: "Lanzar agente" },
+  { group: "Workspaces", title: "New workspace…" }, { group: "Tabs", title: "New tab" },
+  { group: "Panes", title: "Split right" }, { group: "Panes", title: "Close focused pane" },
+  { group: "Navigate", title: "Go to tab: logs" }, { group: "Agents", title: "Launch agent…" },
 ];
 const titles = (q) => matchCommands(q, items).map((i) => i.title);
 assert.equal(titles("").length, 6);
-assert.deepEqual(titles("pestana"), ["Nueva pestaña", "Ir a pestaña: logs"]); // accent-insensitive, startsWith ranks first
-assert.deepEqual(titles("PANEL"), ["Cerrar panel", "Dividir a la derecha"]); // title hit first, then the group-only hit
-assert.deepEqual(titles("paneles dividir"), ["Dividir a la derecha"]); // words may match the group too
-assert.deepEqual(titles("nuevo space"), ["Nuevo space…"]);
+assert.deepEqual(titles("tab"), ["New tab", "Go to tab: logs"]); // accent-insensitive, startsWith ranks first
+assert.deepEqual(titles("PANE"), ["Close focused pane", "Split right"]); // title hit first, then the group-only hit
+assert.deepEqual(titles("panes split"), ["Split right"]); // words may match the group too
+assert.deepEqual(titles("new workspace"), ["New workspace…"]);
 assert.deepEqual(titles("zzz"), []);
 assert.deepEqual(titles("a"), titles("a")); // stable
 
@@ -34,7 +34,7 @@ assert.deepEqual(titles("a"), titles("a")); // stable
 assert.deepEqual(parseApiLine("pane.list"), { method: "pane.list", params: {} });
 assert.deepEqual(parseApiLine(`pane.read {"pane_id":"w1:p1","source":"visible"}`), { method: "pane.read", params: { pane_id: "w1:p1", source: "visible" } });
 assert.deepEqual(parseApiLine(`  shepherd.agent.list  `), { method: "shepherd.agent.list", params: {} });
-assert.match(parseApiLine("pane.read {oops").error, /JSON inválido/);
+assert.match(parseApiLine("pane.read {oops").error, /Invalid JSON/);
 assert.match(parseApiLine("pane.read [1]").error, /objeto/);
 assert.match(parseApiLine("").error, /formato/);
 assert.match(parseApiLine("123").error, /formato/);

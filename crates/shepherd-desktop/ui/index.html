@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <title>Shepherd</title>
@@ -9,8 +9,8 @@
 <div id="app">
   <aside id="sidebar">
     <div class="brand"><span class="logo">S</span><b>Shepherd</b></div>
-    <div class="sect"><div class="sh"><span>Spaces</span><button class="mini" id="space-add" title="Nuevo space">+</button></div><div id="spaces"></div></div>
-    <div class="sect grow"><div class="sh"><span>Agentes</span><button class="mini" id="agent-add" title="Lanzar agente">+</button></div><div id="agents-side"></div></div>
+    <div class="sect"><div class="sh"><span>Workspaces</span><button class="mini" id="space-add" title="New workspace">+</button></div><div id="spaces"></div></div>
+    <div class="sect grow"><div class="sh"><span>Agents</span><button class="mini" id="agent-add" title="Launch agent">+</button></div><div id="agents-side"></div></div>
   </aside>
   <section id="workarea">
     <nav id="wtabs"></nav>
@@ -25,8 +25,8 @@
     <div id="cmdbar" hidden>
       <div class="cmd-head">
         <input id="cmd-input" type="text" spellcheck="false" autocomplete="off">
-        <button class="mini" id="cmd-clear" title="Limpiar la salida">Limpiar</button>
-        <button class="mini" id="cmd-close" title="Cerrar (Esc)">✕</button>
+        <button class="mini" id="cmd-clear" title="Clear output">Clear</button>
+        <button class="mini" id="cmd-close" title="Close (Esc)">✕</button>
       </div>
       <div class="cmd-hint" id="cmd-hint"></div>
       <div class="cmd-body"><div id="cmd-list"></div><div id="cmd-out"></div></div>
@@ -38,6 +38,7 @@
 <!-- app.js last: it draws the first tab on load and needs the tab modules defined -->
 <script src="boot.js"></script>
 <script src="launcher.js"></script>
+  <script src="cleanup.js"></script>
   <script src="patterns.js"></script>
 <script src="agents.js"></script>
 <script src="runs.js"></script>

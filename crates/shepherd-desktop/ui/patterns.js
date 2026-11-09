@@ -62,9 +62,9 @@ async function drawPatterns() {
   for (const p of list)
     items.append(listItem({ title: p.name, meta: `${p.kind} · ${p.agents_count}a${p.shadowed ? " · tapado" : ""}`, off: p.shadowed,
       active: !!pe && !pe.isNew && pe.pat.name === p.name, onclick: () => openPattern(p.name) }));
-  if (pe?.isNew) items.append(listItem({ title: "(nuevo)", active: true, onclick: () => {} }));
-  $("list").replaceChildren(items, el("button", { id: "new", onclick: () => newPattern() }, "+ Nuevo"));
-  if (!pe) return $("detail").replaceChildren(el("div", { className: "empty" }, "Selecciona un patrón o crea uno nuevo."));
+  if (pe?.isNew) items.append(listItem({ title: "(new)", active: true, onclick: () => {} }));
+  $("list").replaceChildren(items, el("button", { id: "new", onclick: () => newPattern() }, "+ New"));
+  if (!pe) return $("detail").replaceChildren(el("div", { className: "empty" }, "Select a pattern or create a new one."));
   pe.cfg = cfg;
   drawEditor();
 }
@@ -88,7 +88,7 @@ function newPattern(from = null) {
 let validateTimer = 0;
 function changed() {
   dirty = true;
-  const s = $("pstate"); if (s) s.textContent = "● sin guardar";
+  const s = $("pstate"); if (s) s.textContent = "● unsaved";
   renderCanvas();
   clearTimeout(validateTimer);
   validateTimer = setTimeout(async () => {
@@ -100,40 +100,38 @@ function changed() {
 function renderProblems(prefix = "") {
   const lines = pe.problems.map((p) => `[${p.severity}] ${p.path}: ${p.message}`);
   const bad = pe.problems.some((p) => p.severity === "error");
-  setMsg(msgBox(), [prefix, ...lines].filter(Boolean).join("\n") || "Sin problemas.", bad ? "bad" : "ok");
+  setMsg(msgBox(), [prefix, ...lines].filter(Boolean).join("\n") || "No issues.", bad ? "bad" : "ok");
 }
 
 function drawEditor() {
-  const st = el("span", { className: "state", id: "pstate" }, dirty ? "● sin guardar" : "");
+  const st = el("span", { className: "state", id: "pstate" }, dirty ? "● unsaved" : "");
   const builtin = pe.source === "builtin" && !pe.isNew;
-  const save = el("button", { className: "btn primary", disabled: builtin, title: builtin ? "Plantilla incluida: usa Duplicar" : "", onclick: savePattern }, "Guardar");
-  const head = el("div", { className: "head" }, `PATRÓN: ${pe.pat.name || "nuevo"} (${pe.isNew ? "nuevo" : pe.source})`, st, save,
+  const save = el("button", { className: "btn primary", disabled: builtin, title: builtin ? "Built in template: use Duplicate" : "", onclick: savePattern }, "Save");
+  const head = el("div", { className: "head" }, `PATTERN: ${pe.pat.name || "new"} (${pe.isNew ? "new" : pe.source})`, st, save,
     el("button", { className: "btn", onclick: () => newPattern(pe.pat) }, "Duplicar"));
   // Running needs a saved pattern: the server reads it from disk, not from this editor.
   const runnable = !pe.isNew && !dirty;
-  head.append(el("button", { className: "btn", disabled: !runnable, title: runnable ? "Lanza los agentes del patrón en el space activo" : "Guarda el patrón antes de ejecutarlo",
-    onclick: () => { pe.runOpen = !pe.runOpen; pe.runForm ??= runPatternForm(); drawEditor(); } }, "Ejecutar"));
+  head.append(el("button", { className: "btn", disabled: !runnable, title: runnable ? "Launch pattern agents in the active workspace" : "Save the pattern before running it",
+    onclick: () => { pe.runOpen = !pe.runOpen; pe.runForm ??= runPatternForm(); drawEditor(); } }, "Run"));
   if (!pe.isNew && !builtin) {
-    let sure = false;
     const del = el("button", { className: "btn danger", onclick: async () => {
-      if (!sure) { sure = true; del.textContent = "¿Seguro? Pulsa otra vez"; return; }
       try { await invokeP("pattern_delete", { name: pe.pat.name }); pe = null; dirty = false; drawPatterns(); }
       catch (e) { setMsg(msgBox(), String(e), "bad"); }
-    } }, "Eliminar");
+    } }, "Delete");
     head.append(del);
   }
   const tools = el("div", { className: "tools" },
-    el("button", { className: "btn", onclick: addAgent }, "+ Agente"),
-    el("button", { className: "btn", onclick: addTopic }, "+ Tópico"),
+    el("button", { className: "btn", onclick: addAgent }, "+ Agent"),
+    el("button", { className: "btn", onclick: addTopic }, "+ Topic"),
     el("button", { className: "btn", onclick: () => { pe.pos = autoLayout(pe.pat); renderCanvas(); } }, "Ordenar"),
-    el("span", { className: "hint" }, "Arrastra el punto ● de un nodo hasta otro para conectar. Suprimir borra lo seleccionado."));
+    el("span", { className: "hint" }, "Drag a node’s ● handle to another node to connect them. Delete removes the selection."));
   const canvas = el("div", { id: "canvas" });
   $("detail").replaceChildren(head, ...(pe.runOpen && pe.runForm ? [pe.runForm] : []), tools, el("div", { id: "work" }, canvas, el("div", { id: "insp", className: "insp" })), el("pre", { id: "msgs" }));
   renderCanvas(); renderInspector();
   if (pe.problems.length || !pe.isNew) renderProblems(); else setMsg(msgBox(), pe.path ?? "");
 }
 
-// "Ejecutar": the shared launcher (launcher.js) with this pattern fixed.
+// "Run": the shared launcher (launcher.js) with this pattern fixed.
 function runPatternForm() {
   const f = patternRunForm({ pattern: pe.pat.name, onCancel: () => { pe.runOpen = false; drawEditor(); },
     onStarted: () => { pe.runOpen = false; pe.runForm = null; openPanelTab("runs"); } });
@@ -167,7 +165,7 @@ const freeSpot = () => ({ x: 30 + (Object.keys(pe.pos).length % 5) * 40, y: 30 +
 
 function connect(fromKey, toKey) {
   const [ft, fn] = [fromKey[0], fromKey.slice(2)], [tt, tn] = [toKey[0], toKey.slice(2)];
-  if (ft === tt) return setMsg(msgBox(), "Conecta un agente con un tópico (no dos del mismo tipo).", "bad");
+  if (ft === tt) return setMsg(msgBox(), "Connect an agent to a topic (not two of the same type).", "bad");
   const agent = pe.pat.agents.find((a) => a.id === (ft === "a" ? fn : tn)), topic = ft === "a" ? tn : fn;
   const list = ft === "a" ? agent.publishes : agent.consumes;
   if (!list.includes(topic)) { list.push(topic); changed(); }
@@ -283,11 +281,11 @@ function renderInspector() {
   const remove = (label) => el("button", { className: "btn danger", onclick: removeSel }, label);
   if (!s) {
     const kind = el("select", { onchange: () => { pat.kind = kind.value; changed(); } }, ...KINDS.map((k) => el("option", { value: k, selected: k === pat.kind }, k)));
-    form.append(title("Patrón"), ...row("name", bind(pat, "name", { disabled: !pe.isNew })), ...row("kind", kind), ...row("description", bind(pat, "description", { kind: "area" })));
+    form.append(title("Pattern"), ...row("name", bind(pat, "name", { disabled: !pe.isNew })), ...row("kind", kind), ...row("description", bind(pat, "description", { kind: "area" })));
   } else if (s.type === "agent") {
     const a = pat.agents.find((x) => x.id === s.id);
     const models = cfg?.vendors?.[a.vendor]?.models ?? [];
-    form.append(title("Agente"),
+    form.append(title("Agent"),
       ...row("id", bind(a, "id", { onCommit: (nv) => { if (nv && !pat.agents.some((x) => x.id === nv)) { pe.pos["a:" + nv] = pe.pos["a:" + a.id]; delete pe.pos["a:" + a.id]; a.id = nv; s.id = nv; } renderInspector(); } })),
       ...row("role", bind(a, "role", { list: "dl-roles" })), ...row("vendor", bind(a, "vendor", { nullable: true, list: "dl-vendors" })),
       ...row("model", bind(a, "model", { nullable: true, list: "dl-models" })), ...row("count", bind(a, "count", { kind: "number" })),
@@ -296,19 +294,19 @@ function renderInspector() {
     const vendorOptions = Object.entries(cfg?.vendors ?? {}).map(([name, v]) => el("option", { value: name, label: `${name}${dc.loaded ? (pathOf(v.command) ? " ✓" : " (no instalado)") : ""}` }));
     const vendorList = el("datalist", { id: "dl-vendors" }); vendorList.append(...vendorOptions);
     const modelList = dl("dl-models", models);
-    form.append(dl("dl-roles", Object.keys(cfg?.roles ?? {})), vendorList, modelList, remove("Quitar agente"));
+    form.append(dl("dl-roles", Object.keys(cfg?.roles ?? {})), vendorList, modelList, remove("Remove agent"));
     suggestModels(a, cfg, modelList);
   } else if (s.type === "topic") {
     const t = pat.topics.find((x) => x.name === s.name);
-    form.append(title("Tópico"),
+    form.append(title("Topic"),
       ...row("name", bind(t, "name", { onCommit: (nv) => {
         if (!nv || pat.topics.some((x) => x.name === nv)) return;
         for (const a of pat.agents) for (const l of ["publishes", "consumes"]) a[l] = a[l].map((x) => (x === t.name ? nv : x));
         pe.pos["t:" + nv] = pe.pos["t:" + t.name]; delete pe.pos["t:" + t.name]; t.name = nv; s.name = nv; renderInspector();
       } })),
-      ...row("partitions", bind(t, "partitions", { kind: "number" })), ...row("key", bind(t, "key", { nullable: true })), ...row("filter", bind(t, "filter", { nullable: true })), remove("Quitar tópico"));
+      ...row("partitions", bind(t, "partitions", { kind: "number" })), ...row("key", bind(t, "key", { nullable: true })), ...row("filter", bind(t, "filter", { nullable: true })), remove("Remove topic"));
   } else {
-    form.append(title("Conexión"), ...row(s.list === "publishes" ? "publica" : "consume", el("span", {}, `${s.agent} ${s.list === "publishes" ? "→" : "←"} ${s.topic}`)), remove("Quitar conexión"));
+    form.append(title("Connection"), ...row(s.list === "publishes" ? "publishes" : "consumes", el("span", {}, `${s.agent} ${s.list === "publishes" ? "→" : "←"} ${s.topic}`)), remove("Remove connection"));
   }
   box.replaceChildren(form);
 }
